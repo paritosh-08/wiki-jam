@@ -17,6 +17,7 @@ services:
       retries: 5
     networks:
       - wiki-jam-network
+    restart: always
 
   backend:
     build:
@@ -39,7 +40,7 @@ services:
         condition: service_healthy
     networks:
       - wiki-jam-network
-    restart: unless-stopped
+    restart: always
 
   frontend:
     build:
@@ -52,7 +53,7 @@ services:
       - backend
     networks:
       - wiki-jam-network
-    restart: unless-stopped
+    restart: always
 
 volumes:
   postgres_data:

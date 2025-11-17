@@ -55,12 +55,32 @@ function CollaborativeEditor({ filename, initialValue, onChange, placeholder, cl
   useEffect(() => {
     if (!filename) return;
 
+    // Determine WebSocket URL based on environment
+    const getWebSocketUrl = () => {
+      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      const host = window.location.host;
+
+      // In development (localhost:5173), connect directly to backend
+      if (window.location.hostname === 'localhost' && window.location.port === '5173') {
+        return 'ws://localhost:3001';
+      }
+
+      // In production (served via nginx or Cloudflare), use /ws path
+      return `${protocol}//${host}/ws`;
+    };
+
+    const wsBaseUrl = getWebSocketUrl();
+
     // Create ShareDB WebSocket connection
-    const shareSocket = new ReconnectingWebSocket('ws://localhost:3001');
+    const shareSocket = new ReconnectingWebSocket(wsBaseUrl);
     const shareConnection = new ShareDB.Connection(shareSocket);
 
     // Create separate presence WebSocket connection
-    const presenceSocket = new ReconnectingWebSocket('ws://localhost:3001/presence');
+    // In production, use /ws/presence; in development, use /presence
+    const presenceUrl = window.location.hostname === 'localhost' && window.location.port === '5173'
+      ? 'ws://localhost:3001/presence'
+      : `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}/ws/presence`;
+    const presenceSocket = new ReconnectingWebSocket(presenceUrl);
 
     // Get or create the document - include sessionId in document ID
     const docId = `${sessionData.sessionId}/${filename}`;
