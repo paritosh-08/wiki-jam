@@ -1,0 +1,32 @@
+{
+  "name": "wiki-jam-frontend",
+  "version": "1.0.0",
+  "description": "Frontend for wiki jam editor",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@tiptap/extension-collaboration": "^2.1.13",
+    "@tiptap/extension-collaboration-cursor": "^2.1.13",
+    "@tiptap/react": "^2.1.13",
+    "@tiptap/starter-kit": "^2.1.13",
+    "events": "^3.3.0",
+    "js-yaml": "^4.1.0",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "react-force-graph-2d": "^1.25.4",
+    "react-router-dom": "^6.21.1",
+    "reconnecting-websocket": "^4.4.0",
+    "sharedb": "^5.2.2",
+    "util": "^0.12.5",
+    "y-websocket": "^1.5.0",
+    "yjs": "^13.6.10"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.2.1",
+    "vite": "^5.0.8"
+  }
+}
