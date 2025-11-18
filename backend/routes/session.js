@@ -85,8 +85,8 @@ sessionRouter.post('/join', async (req, res) => {
 });
 
 // Get session info
-sessionRouter.get('/:sessionId', (req, res) => {
-  const session = getSession(req.params.sessionId);
+sessionRouter.get('/:sessionId', async (req, res) => {
+  const session = await getSession(req.params.sessionId);
 
   if (!session) {
     return res.status(404).json({ error: 'Session not found' });

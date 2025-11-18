@@ -171,7 +171,7 @@ wikiRouter.post('/upload', upload.array('files'), async (req, res) => {
       return res.status(400).json({ error: 'sessionId is required' });
     }
 
-    const session = getSession(sessionId);
+    const session = await getSession(sessionId);
     if (!session || !session.directory) {
       return res.status(400).json({ error: 'Invalid session' });
     }
@@ -195,8 +195,10 @@ wikiRouter.post('/upload', upload.array('files'), async (req, res) => {
 
         const destPath = path.join(session.directory, filename);
 
-        // Move file from temp to session directory
-        await fs.rename(file.path, destPath);
+        // Copy file from temp to session directory (works across filesystems)
+        await fs.copyFile(file.path, destPath);
+        // Delete the temp file after successful copy
+        await fs.unlink(file.path).catch(() => {});
 
         uploadedFiles.push({
           filename: filename,
@@ -256,7 +258,7 @@ wikiRouter.get('/download', async (req, res) => {
       return res.status(400).json({ error: 'sessionId is required' });
     }
 
-    const session = getSession(sessionId);
+    const session = await getSession(sessionId);
     if (!session || !session.directory) {
       return res.status(404).json({ error: 'Session not found' });
     }

@@ -14,8 +14,8 @@ RUN npm install --omit=dev
 # Copy application code
 COPY . .
 
-# Create sessions directory
-RUN mkdir -p /app/sessions
+# Create sessions directory and temp upload directory
+RUN mkdir -p /app/sessions /tmp/wiki-uploads
 
 # Expose port
 EXPOSE 3001
