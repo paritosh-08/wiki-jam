@@ -20,7 +20,11 @@ function WikiSession({ sessionData }) {
   const [showCreateDialog, setShowCreateDialog] = useState(false);
   const [newFileName, setNewFileName] = useState('');
   const [newFileTitle, setNewFileTitle] = useState('');
+  const [availableTags, setAvailableTags] = useState([]);
+  const [selectedTags, setSelectedTags] = useState([]);
+  const [showFilterDropdown, setShowFilterDropdown] = useState(false);
   const fileInputRef = React.useRef(null);
+  const filterDropdownRef = React.useRef(null);
 
   // Modal state
   const [modalState, setModalState] = useState({
@@ -40,7 +44,25 @@ function WikiSession({ sessionData }) {
 
   useEffect(() => {
     loadPages();
+    loadTags();
   }, []);
+
+  // Close dropdown when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (filterDropdownRef.current && !filterDropdownRef.current.contains(event.target)) {
+        setShowFilterDropdown(false);
+      }
+    };
+
+    if (showFilterDropdown) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [showFilterDropdown]);
 
   const loadPages = async () => {
     try {
@@ -53,6 +75,18 @@ function WikiSession({ sessionData }) {
       setError(err.message);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const loadTags = async () => {
+    try {
+      const response = await fetch(`/api/wiki/tags?sessionId=${sessionId}`);
+      if (!response.ok) throw new Error('Failed to load tags');
+
+      const data = await response.json();
+      setAvailableTags(data.tags);
+    } catch (err) {
+      console.error('Error loading tags:', err);
     }
   };
 
@@ -230,7 +264,15 @@ function WikiSession({ sessionData }) {
 
   const handleDownloadZip = async () => {
     try {
-      const response = await fetch(`/api/wiki/download?sessionId=${sessionId}`);
+      // Build URL with optional tag filter
+      let url = `/api/wiki/download?sessionId=${sessionId}`;
+      if (selectedTags.length > 0) {
+        selectedTags.forEach(tag => {
+          url += `&tags=${encodeURIComponent(tag)}`;
+        });
+      }
+
+      const response = await fetch(url);
 
       if (!response.ok) throw new Error('Failed to download wiki');
 
@@ -238,15 +280,15 @@ function WikiSession({ sessionData }) {
       const blob = await response.blob();
 
       // Create a download link
-      const url = window.URL.createObjectURL(blob);
+      const downloadUrl = window.URL.createObjectURL(blob);
       const a = document.createElement('a');
-      a.href = url;
+      a.href = downloadUrl;
       a.download = `wiki-${sessionId}.zip`;
       document.body.appendChild(a);
       a.click();
 
       // Cleanup
-      window.URL.revokeObjectURL(url);
+      window.URL.revokeObjectURL(downloadUrl);
       document.body.removeChild(a);
     } catch (err) {
       showModal('❌ Download Error', (
@@ -278,8 +320,14 @@ function WikiSession({ sessionData }) {
               try {
                 const response = await fetch('/api/session/delete', {
                   method: 'DELETE',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({ secretKey: sessionData.secretKey })
+                  headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${sessionData.token}`
+                  },
+                  body: JSON.stringify({
+                    sessionId: sessionData.sessionId,
+                    secretKey: sessionData.secretKey // Fallback for non-authenticated sessions
+                  })
                 });
 
                 if (!response.ok) {
@@ -353,13 +401,25 @@ function WikiSession({ sessionData }) {
   };
 
   const filteredPages = pages.filter(page => {
-    if (!searchQuery) return true;
-    const query = searchQuery.toLowerCase();
-    return (
-      page.title.toLowerCase().includes(query) ||
-      page.definition.toLowerCase().includes(query) ||
-      (page.aliases && page.aliases.some(a => a.toLowerCase().includes(query)))
-    );
+    // Filter by search query
+    if (searchQuery) {
+      const query = searchQuery.toLowerCase();
+      const matchesSearch = (
+        page.title.toLowerCase().includes(query) ||
+        page.definition.toLowerCase().includes(query) ||
+        (page.aliases && page.aliases.some(a => a.toLowerCase().includes(query)))
+      );
+      if (!matchesSearch) return false;
+    }
+
+    // Filter by selected tags (page must have ALL selected tags)
+    if (selectedTags.length > 0) {
+      const pageTags = page.tags || [];
+      const hasAllTags = selectedTags.every(tag => pageTags.includes(tag));
+      if (!hasAllTags) return false;
+    }
+
+    return true;
   });
 
   if (showGraph) {
@@ -404,7 +464,154 @@ function WikiSession({ sessionData }) {
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
           />
+
           <div className="action-buttons">
+            {/* Filter Button with Dropdown */}
+            {availableTags.length > 0 && (
+              <div style={{ position: 'relative' }} ref={filterDropdownRef}>
+                <button
+                  className="action-button"
+                  onClick={() => setShowFilterDropdown(!showFilterDropdown)}
+                  style={{
+                    backgroundColor: selectedTags.length > 0 ? '#3b82f6' : undefined,
+                    color: selectedTags.length > 0 ? 'white' : undefined,
+                    position: 'relative'
+                  }}
+                >
+                  🏷️ Filter
+                  {selectedTags.length > 0 && (
+                    <span style={{
+                      marginLeft: '0.5rem',
+                      padding: '0.125rem 0.5rem',
+                      borderRadius: '9999px',
+                      backgroundColor: 'rgba(255, 255, 255, 0.3)',
+                      fontSize: '0.75rem',
+                      fontWeight: '600'
+                    }}>
+                      {selectedTags.length}
+                    </span>
+                  )}
+                </button>
+
+                {/* Dropdown Menu */}
+                {showFilterDropdown && (
+                  <div style={{
+                    position: 'absolute',
+                    top: 'calc(100% + 0.5rem)',
+                    left: 0,
+                    backgroundColor: 'white',
+                    border: '1px solid #e5e7eb',
+                    borderRadius: '0.5rem',
+                    boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05)',
+                    minWidth: '200px',
+                    maxWidth: '300px',
+                    zIndex: 1000,
+                    animation: 'slideDown 0.2s ease-out'
+                  }}>
+                    <div style={{
+                      padding: '0.75rem 1rem',
+                      borderBottom: '1px solid #e5e7eb',
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center'
+                    }}>
+                      <span style={{
+                        fontSize: '0.875rem',
+                        fontWeight: '600',
+                        color: '#374151'
+                      }}>
+                        Filter by Tags
+                      </span>
+                      {selectedTags.length > 0 && (
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setSelectedTags([]);
+                          }}
+                          style={{
+                            fontSize: '0.75rem',
+                            color: '#ef4444',
+                            background: 'none',
+                            border: 'none',
+                            cursor: 'pointer',
+                            padding: '0.25rem 0.5rem',
+                            borderRadius: '0.25rem',
+                            fontWeight: '500'
+                          }}
+                          onMouseEnter={(e) => {
+                            e.currentTarget.style.backgroundColor = '#fee2e2';
+                          }}
+                          onMouseLeave={(e) => {
+                            e.currentTarget.style.backgroundColor = 'transparent';
+                          }}
+                        >
+                          Clear all
+                        </button>
+                      )}
+                    </div>
+
+                    <div style={{
+                      maxHeight: '300px',
+                      overflowY: 'auto',
+                      padding: '0.5rem'
+                    }}>
+                      {availableTags.map(tag => {
+                        const isSelected = selectedTags.includes(tag);
+                        return (
+                          <label
+                            key={tag}
+                            style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              padding: '0.5rem 0.75rem',
+                              cursor: 'pointer',
+                              borderRadius: '0.375rem',
+                              transition: 'background-color 0.15s'
+                            }}
+                            onMouseEnter={(e) => {
+                              e.currentTarget.style.backgroundColor = '#f3f4f6';
+                            }}
+                            onMouseLeave={(e) => {
+                              e.currentTarget.style.backgroundColor = 'transparent';
+                            }}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={isSelected}
+                              onChange={() => {
+                                if (isSelected) {
+                                  setSelectedTags(selectedTags.filter(t => t !== tag));
+                                } else {
+                                  setSelectedTags([...selectedTags, tag]);
+                                }
+                              }}
+                              style={{
+                                width: '1rem',
+                                height: '1rem',
+                                marginRight: '0.75rem',
+                                cursor: 'pointer',
+                                accentColor: '#3b82f6'
+                              }}
+                            />
+                            <span style={{
+                              fontSize: '0.875rem',
+                              color: '#374151',
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '0.5rem'
+                            }}>
+                              <span>🏷️</span>
+                              <span>{tag}</span>
+                            </span>
+                          </label>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
             <button
               className="action-button"
               onClick={() => setShowCreateDialog(true)}
@@ -468,6 +675,7 @@ function WikiSession({ sessionData }) {
             <div className="pages-count">
               {filteredPages.length} page{filteredPages.length !== 1 ? 's' : ''}
               {searchQuery && ` matching "${searchQuery}"`}
+              {selectedTags.length > 0 && ` with tag${selectedTags.length !== 1 ? 's' : ''}: ${selectedTags.join(', ')}`}
             </div>
             
             <div className="wiki-grid">

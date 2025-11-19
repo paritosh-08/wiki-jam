@@ -3,6 +3,19 @@
   background: #f9fafb;
   display: flex;
   flex-direction: column;
+  height: 100vh;
+  overflow: hidden;
+}
+
+.editor-container-with-sidebar {
+  display: flex;
+  flex: 1;
+  overflow: hidden;
+}
+
+.editor-main-content {
+  flex: 1;
+  overflow-y: auto;
 }
 
 .editor-header {
@@ -143,12 +156,40 @@
   margin-bottom: 24px;
 }
 
+.form-group-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
 .form-group label {
   display: block;
   font-size: 14px;
   font-weight: 600;
   color: #374151;
-  margin-bottom: 8px;
+  margin-bottom: 0;
+}
+
+.insert-link-button {
+  padding: 6px 12px;
+  background: #667eea;
+  color: white;
+  border: none;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.insert-link-button:hover {
+  background: #5568d3;
+  transform: translateY(-1px);
+  box-shadow: 0 2px 8px rgba(102, 126, 234, 0.3);
 }
 
 .form-input {

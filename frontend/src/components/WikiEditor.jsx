@@ -1,6 +1,11 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import CollaborativeEditor from './CollaborativeEditor';
+import TiptapCollaborativeEditor from './TiptapCollaborativeEditor';
+import CommentsSidebar from './CommentsSidebar';
 import Modal from './Modal';
+import WikiLink from './WikiLink';
+import LinkEditDialog from './LinkEditDialog';
+import { parseWikiLinks } from '../utils/wikiUtils';
 import './WikiEditor.css';
 
 function WikiEditor({ page, sessionData, onClose, onBack, hasHistory, onWikiLinkClick, initialMode = 'preview' }) {
@@ -9,11 +14,18 @@ function WikiEditor({ page, sessionData, onClose, onBack, hasHistory, onWikiLink
   const [details, setDetails] = useState(page.details || '');
   const [aliases, setAliases] = useState(page.aliases || []);
   const [newAlias, setNewAlias] = useState('');
+  const [tags, setTags] = useState(page.tags || []);
+  const [newTag, setNewTag] = useState('');
   const [isEditing, setIsEditing] = useState(initialMode === 'edit');
   const [isSaving, setIsSaving] = useState(false);
   const [brokenLinks, setBrokenLinks] = useState(new Set());
+  const [showComments, setShowComments] = useState(true);
+  const [showLinkDialog, setShowLinkDialog] = useState(false);
+  const [linkDialogPosition, setLinkDialogPosition] = useState({ x: 0, y: 0 });
+  const [linkInsertField, setLinkInsertField] = useState(null); // 'definition' or 'details'
   const saveTimeoutRef = useRef(null);
   const currentPageRef = useRef(page.filename);
+  const isInitialLoadRef = useRef(true);
 
   // Modal state
   const [modalState, setModalState] = useState({
@@ -43,60 +55,23 @@ function WikiEditor({ page, sessionData, onClose, onBack, hasHistory, onWikiLink
     // Update state with new page data
     if (page.filename !== currentPageRef.current) {
       currentPageRef.current = page.filename;
+      isInitialLoadRef.current = true; // Reset initial load flag when page changes
       setTitle(page.title || '');
       setDefinition(page.definition || '');
       setDetails(page.details || '');
       setAliases(page.aliases || []);
+      setTags(page.tags || []);
       setNewAlias('');
+      setNewTag('');
       setIsEditing(initialMode === 'edit'); // Set mode based on initialMode prop
     } else {
-      // Even if filename hasn't changed, update aliases in case they were modified
+      // Even if filename hasn't changed, update aliases and tags in case they were modified
       setAliases(page.aliases || []);
+      setTags(page.tags || []);
     }
   }, [page, initialMode]);
 
-  // Check for broken links when content changes
-  useEffect(() => {
-    const checkLinks = async () => {
-      const allText = `${definition} ${details}`;
-      const links = parseWikiLinks(allText);
-      const broken = new Set();
-
-      for (const link of links) {
-        try {
-          const response = await fetch(`/api/wiki/find/${encodeURIComponent(link.pageName)}?sessionId=${sessionData.sessionId}`);
-          if (!response.ok) {
-            broken.add(link.pageName);
-          }
-        } catch (err) {
-          broken.add(link.pageName);
-        }
-      }
-
-      setBrokenLinks(broken);
-    };
-
-    checkLinks();
-  }, [definition, details]);
-
-  // Parse wiki links from text - format: [text](wiki://page)
-  const parseWikiLinks = (text) => {
-    if (!text) return [];
-    const linkRegex = /\[([^\]]+)\]\(wiki:\/\/([^)]+)\)/g;
-    const links = [];
-    let match;
-    while ((match = linkRegex.exec(text)) !== null) {
-      links.push({
-        fullText: match[0],
-        displayText: match[1],
-        pageName: match[2],
-        index: match.index
-      });
-    }
-    return links;
-  };
-
-  // Render text with clickable wiki links
+  // Render text with clickable wiki links using WikiLink component
   const renderWithLinks = (text) => {
     if (!text) return null;
     const links = parseWikiLinks(text);
@@ -115,24 +90,16 @@ function WikiEditor({ page, sessionData, onClose, onBack, hasHistory, onWikiLink
         );
       }
 
-      const isBroken = brokenLinks.has(link.pageName);
-
-      // Add the clickable link
+      // Add the WikiLink component
       parts.push(
-        <a
+        <WikiLink
           key={`link-${idx}`}
-          href="#"
-          className={`wiki-link ${isBroken ? 'broken' : ''}`}
-          onClick={(e) => {
-            e.preventDefault();
-            if (!isBroken) {
-              onWikiLinkClick(link.pageName);
-            }
-          }}
-          title={isBroken ? `Page not found: ${link.pageName}` : `Go to ${link.pageName}`}
-        >
-          {link.displayText}
-        </a>
+          pageName={link.pageName}
+          displayText={link.displayText}
+          sessionId={sessionData.sessionId}
+          onNavigate={onWikiLinkClick}
+          onCreatePage={handleCreatePageFromLink}
+        />
       );
 
       lastIndex = link.index + link.fullText.length;
@@ -148,6 +115,39 @@ function WikiEditor({ page, sessionData, onClose, onBack, hasHistory, onWikiLink
     }
 
     return parts;
+  };
+
+  // Handle creating a new page from a broken link
+  const handleCreatePageFromLink = (pageName) => {
+    showModal(
+      'Create New Page',
+      `The page "${pageName}" doesn't exist yet. Would you like to create it?`,
+      'confirm',
+      async () => {
+        try {
+          // Create the page with the title
+          const filename = `${pageName.toLowerCase().replace(/\s+/g, '-')}.hml`;
+          const response = await fetch('/api/wiki/create', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              sessionId: sessionData.sessionId,
+              filename,
+              title: pageName
+            })
+          });
+
+          if (response.ok) {
+            // Navigate to the new page
+            onWikiLinkClick(pageName);
+          } else {
+            showModal('Error', 'Failed to create page', 'error');
+          }
+        } catch (err) {
+          showModal('Error', 'Failed to create page: ' + err.message, 'error');
+        }
+      }
+    );
   };
 
   const handleSave = useCallback(async (silent = false, targetFilename = null) => {
@@ -173,6 +173,7 @@ function WikiEditor({ page, sessionData, onClose, onBack, hasHistory, onWikiLink
     };
 
     try {
+      // Save page content
       const response = await fetch(`/api/wiki/pages/${filenameToSave}?sessionId=${sessionData.sessionId}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -180,6 +181,13 @@ function WikiEditor({ page, sessionData, onClose, onBack, hasHistory, onWikiLink
       });
 
       if (response.ok) {
+        // Save tags separately
+        await fetch(`/api/wiki/pages/${filenameToSave}/tags?sessionId=${sessionData.sessionId}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ tags })
+        });
+
         if (!silent) {
           showModal('✅ Success', (
             <p style={{ color: '#059669' }}>Page saved successfully!</p>
@@ -205,10 +213,16 @@ function WikiEditor({ page, sessionData, onClose, onBack, hasHistory, onWikiLink
         setIsSaving(false);
       }
     }
-  }, [page, title, definition, details, aliases]);
+  }, [page, title, definition, details, aliases, tags]);
 
   // Auto-save when content changes
   useEffect(() => {
+    // Skip auto-save on initial load
+    if (isInitialLoadRef.current) {
+      isInitialLoadRef.current = false;
+      return;
+    }
+
     // Clear existing timeout
     if (saveTimeoutRef.current) {
       clearTimeout(saveTimeoutRef.current);
@@ -228,7 +242,7 @@ function WikiEditor({ page, sessionData, onClose, onBack, hasHistory, onWikiLink
         clearTimeout(saveTimeoutRef.current);
       }
     };
-  }, [title, definition, details, aliases, handleSave, page.filename]);
+  }, [title, definition, details, aliases, tags, handleSave, page.filename]);
 
   const handleAddAlias = () => {
     if (!newAlias.trim()) return;
@@ -247,6 +261,67 @@ function WikiEditor({ page, sessionData, onClose, onBack, hasHistory, onWikiLink
 
   const handleRemoveAlias = (index) => {
     setAliases(aliases.filter((_, i) => i !== index));
+  };
+
+  const handleAddTag = () => {
+    if (!newTag.trim()) return;
+
+    // Check if tag already exists
+    if (tags.includes(newTag.trim())) {
+      showModal('⚠️ Duplicate Tag', (
+        <p>This tag already exists.</p>
+      ), 'warning');
+      return;
+    }
+
+    setTags([...tags, newTag.trim()]);
+    setNewTag('');
+  };
+
+  const handleRemoveTag = (index) => {
+    setTags(tags.filter((_, i) => i !== index));
+  };
+
+  // Handle inserting a link
+  const handleInsertLink = (field) => {
+    // Track which field we're inserting into
+    setLinkInsertField(field);
+
+    // Position dialog in center of screen
+    setLinkDialogPosition({
+      x: window.innerWidth / 2 - 200,
+      y: window.innerHeight / 2 - 150
+    });
+
+    setShowLinkDialog(true);
+  };
+
+  // Handle link insertion from dialog
+  const handleLinkInsert = (url) => {
+    if (!linkInsertField) {
+      setShowLinkDialog(false);
+      return;
+    }
+
+    // Format the link - use page name from URL as display text
+    let displayText = 'link text';
+    if (url.startsWith('wiki://')) {
+      displayText = url.replace('wiki://', '').replace(/-/g, ' ');
+    }
+    const linkText = `[${displayText}](${url})`;
+
+    // Append the link to the appropriate field
+    if (linkInsertField === 'definition') {
+      const newValue = definition ? `${definition}\n${linkText}` : linkText;
+      setDefinition(newValue);
+    } else if (linkInsertField === 'details') {
+      const newValue = details ? `${details}\n${linkText}` : linkText;
+      setDetails(newValue);
+    }
+
+    // Close dialog
+    setShowLinkDialog(false);
+    setLinkInsertField(null);
   };
 
   const handleDelete = () => {
@@ -315,6 +390,13 @@ function WikiEditor({ page, sessionData, onClose, onBack, hasHistory, onWikiLink
           >
             👁️ Preview
           </button>
+          <button
+            className="mode-button"
+            onClick={() => setShowComments(!showComments)}
+            title={showComments ? 'Hide Comments' : 'Show Comments'}
+          >
+            💬 {showComments ? 'Hide' : 'Show'} Comments
+          </button>
           <button className="save-button" onClick={() => handleSave(false)}>
             💾 Save Now
           </button>
@@ -324,7 +406,8 @@ function WikiEditor({ page, sessionData, onClose, onBack, hasHistory, onWikiLink
         </div>
       </div>
 
-      <div className="editor-container">
+      <div className="editor-container-with-sidebar">
+        <div className="editor-main-content">
         <div className="editor-form">
           {isEditing ? (
             <>
@@ -341,7 +424,17 @@ function WikiEditor({ page, sessionData, onClose, onBack, hasHistory, onWikiLink
               </div>
 
               <div className="form-group">
-                <label htmlFor="definition">Definition</label>
+                <div className="form-group-header">
+                  <label htmlFor="definition">Definition</label>
+                  <button
+                    type="button"
+                    className="insert-link-button"
+                    onClick={() => handleInsertLink('definition')}
+                    title="Insert Link (Ctrl+K)"
+                  >
+                    🔗 Insert Link
+                  </button>
+                </div>
                 <CollaborativeEditor
                   filename={`${page.filename}-definition`}
                   initialValue={definition}
@@ -353,7 +446,17 @@ function WikiEditor({ page, sessionData, onClose, onBack, hasHistory, onWikiLink
               </div>
 
               <div className="form-group">
-                <label htmlFor="details">Details</label>
+                <div className="form-group-header">
+                  <label htmlFor="details">Details</label>
+                  <button
+                    type="button"
+                    className="insert-link-button"
+                    onClick={() => handleInsertLink('details')}
+                    title="Insert Link (Ctrl+K)"
+                  >
+                    🔗 Insert Link
+                  </button>
+                </div>
                 <CollaborativeEditor
                   filename={`${page.filename}-details`}
                   initialValue={details}
@@ -406,6 +509,49 @@ function WikiEditor({ page, sessionData, onClose, onBack, hasHistory, onWikiLink
                   </div>
                 </div>
               </div>
+
+              <div className="form-group">
+                <label htmlFor="tags">Tags</label>
+                <div className="aliases-editor">
+                  <div className="aliases-list">
+                    {tags.map((tag, idx) => (
+                      <div key={idx} className="alias-tag" style={{ backgroundColor: '#3b82f6' }}>
+                        <span>{tag}</span>
+                        <button
+                          type="button"
+                          className="alias-remove"
+                          onClick={() => handleRemoveTag(idx)}
+                          title="Remove tag"
+                        >
+                          ×
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="alias-input-group">
+                    <input
+                      type="text"
+                      value={newTag}
+                      onChange={(e) => setNewTag(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          handleAddTag();
+                        }
+                      }}
+                      placeholder="Add a tag..."
+                      className="alias-input"
+                    />
+                    <button
+                      type="button"
+                      onClick={handleAddTag}
+                      className="alias-add-button"
+                    >
+                      + Add
+                    </button>
+                  </div>
+                </div>
+              </div>
             </>
           ) : (
             <>
@@ -437,9 +583,28 @@ function WikiEditor({ page, sessionData, onClose, onBack, hasHistory, onWikiLink
                   </div>
                 </div>
               )}
+
+              {tags && tags.length > 0 && (
+                <div className="preview-section">
+                  <h2>Tags</h2>
+                  <div className="aliases-preview">
+                    {tags.map((tag, idx) => (
+                      <span key={idx} className="alias-tag-preview" style={{ backgroundColor: '#3b82f6' }}>🏷️ {tag}</span>
+                    ))}
+                  </div>
+                </div>
+              )}
             </>
           )}
         </div>
+        </div>
+
+        {showComments && (
+          <CommentsSidebar
+            sessionId={sessionData.sessionId}
+            pageFilename={page.filename}
+          />
+        )}
       </div>
 
       {/* Modal for notifications */}
@@ -452,6 +617,16 @@ function WikiEditor({ page, sessionData, onClose, onBack, hasHistory, onWikiLink
       >
         {modalState.content}
       </Modal>
+
+      {/* Link Edit Dialog */}
+      <LinkEditDialog
+        show={showLinkDialog}
+        position={linkDialogPosition}
+        initialUrl=""
+        onInsert={handleLinkInsert}
+        onCancel={() => setShowLinkDialog(false)}
+        sessionId={sessionData.sessionId}
+      />
     </div>
   );
 }

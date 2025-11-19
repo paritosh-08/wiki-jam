@@ -11,9 +11,14 @@
   "dependencies": {
     "@tiptap/extension-collaboration": "^2.1.13",
     "@tiptap/extension-collaboration-cursor": "^2.1.13",
+    "@tiptap/extension-link": "^3.11.0",
+    "@tiptap/extension-mention": "^3.11.0",
+    "@tiptap/extension-placeholder": "^3.11.0",
+    "@tiptap/pm": "^3.11.0",
     "@tiptap/react": "^2.1.13",
     "@tiptap/starter-kit": "^2.1.13",
     "events": "^3.3.0",
+    "firebase": "^12.6.0",
     "js-yaml": "^4.1.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
@@ -21,6 +26,7 @@
     "react-router-dom": "^6.21.1",
     "reconnecting-websocket": "^4.4.0",
     "sharedb": "^5.2.2",
+    "tippy.js": "^6.3.7",
     "util": "^0.12.5",
     "y-websocket": "^1.5.0",
     "yjs": "^13.6.10"
