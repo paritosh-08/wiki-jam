@@ -6,7 +6,10 @@ import cors from 'cors';
 import { setupShareDBWebSocket } from './sharedbServer.js';
 import { wikiRouter } from './routes/wiki.js';
 import { sessionRouter } from './routes/session.js';
+import { commentsRouter } from './routes/comments.js';
+import { usersRouter } from './routes/users.js';
 import { initializeDatabase } from './db.js';
+import { startNotificationService } from './notifications.js';
 
 const app = express();
 const server = createServer(app);
@@ -20,6 +23,8 @@ app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 // Routes
 app.use('/api/wiki', wikiRouter);
 app.use('/api/session', sessionRouter);
+app.use('/api/comments', commentsRouter);
+app.use('/api/users', usersRouter);
 
 // Setup ShareDB WebSocket server
 setupShareDBWebSocket(wss);
@@ -36,6 +41,9 @@ async function startServer() {
       console.log(`🚀 Server running on http://localhost:${PORT}`);
       console.log(`📡 WebSocket server ready for connections`);
       console.log(`🗄️  PostgreSQL database connected`);
+
+      // Start notification service for mention emails
+      startNotificationService();
     });
   } catch (err) {
     console.error('❌ Failed to start server:', err);

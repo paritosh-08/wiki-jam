@@ -1,0 +1,64 @@
+.wiki-link-wrapper {
+  position: relative;
+  display: inline;
+}
+
+.wiki-link {
+  color: #667eea;
+  text-decoration: none;
+  font-weight: 500;
+  padding: 2px 4px;
+  border-radius: 4px;
+  transition: all 0.2s;
+  background: rgba(102, 126, 234, 0.1);
+  cursor: pointer;
+}
+
+.wiki-link:hover {
+  background: rgba(102, 126, 234, 0.2);
+  color: #5568d3;
+}
+
+.wiki-link-exists {
+  color: #667eea;
+  background: rgba(102, 126, 234, 0.1);
+}
+
+.wiki-link-exists:hover {
+  background: rgba(102, 126, 234, 0.2);
+  color: #5568d3;
+}
+
+.wiki-link-broken {
+  color: #ef4444;
+  background: rgba(239, 68, 68, 0.1);
+  text-decoration: none;
+  position: relative;
+}
+
+.wiki-link-broken:hover {
+  background: rgba(239, 68, 68, 0.2);
+  color: #dc2626;
+}
+
+.wiki-link-broken::after {
+  content: '';
+  position: absolute;
+  left: 4px;
+  right: 4px;
+  bottom: 50%;
+  height: 1px;
+  background: currentColor;
+  opacity: 0.5;
+}
+
+.wiki-link-preview-container {
+  position: absolute;
+  left: 0;
+  top: 100%;
+  margin-top: 8px;
+  z-index: 1000;
+  pointer-events: none;
+  min-width: 320px;
+}
+

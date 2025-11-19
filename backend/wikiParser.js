@@ -2,18 +2,26 @@ import fs from 'fs/promises';
 import path from 'path';
 import yaml from 'js-yaml';
 import { fileURLToPath } from 'url';
-import { getSession } from './yjsServer.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+// Get session directory path
+export function getSessionDirectory(sessionId) {
+  return path.join(path.dirname(__dirname), 'sessions', sessionId);
+}
+
 // Get the wiki path for a specific session
 async function getSessionWikiPath(sessionId) {
-  const session = await getSession(sessionId);
-  if (!session || !session.directory) {
+  const directory = getSessionDirectory(sessionId);
+
+  // Check if directory exists
+  try {
+    await fs.access(directory);
+    return directory;
+  } catch (err) {
     throw new Error(`Session ${sessionId} not found or has no directory`);
   }
-  return session.directory;
 }
 
 export async function getAllWikiPages(sessionId) {

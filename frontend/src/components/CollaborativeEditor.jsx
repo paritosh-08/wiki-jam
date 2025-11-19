@@ -10,6 +10,7 @@ function CollaborativeEditor({ filename, initialValue, onChange, placeholder, cl
   const textareaRef = useRef(null);
   const editorContainerRef = useRef(null);
   const [doc, setDoc] = useState(null);
+  const [docReady, setDocReady] = useState(false);
   const [users, setUsers] = useState([]);
   const [isConnected, setIsConnected] = useState(false);
   const suppressChangeRef = useRef(false);
@@ -35,6 +36,34 @@ function CollaborativeEditor({ filename, initialValue, onChange, placeholder, cl
   useEffect(() => {
     autoResize();
   }, [initialValue]);
+
+  // Watch for external changes to initialValue and update the document
+  useEffect(() => {
+    if (!doc || !docReady || !textareaRef.current || suppressChangeRef.current) return;
+
+    const currentContent = doc.data?.content || '';
+    const newContent = initialValue || '';
+
+    // Only update if the content is actually different
+    if (currentContent !== newContent) {
+      // Submit operation to replace entire content
+      const op = [{ p: ['content'], od: currentContent, oi: newContent }];
+      doc.submitOp(op, { source: userIdRef.current }, (err) => {
+        if (err) {
+          console.error('Error updating document:', err);
+          return;
+        }
+
+        // Update textarea
+        suppressChangeRef.current = true;
+        textareaRef.current.value = newContent;
+        suppressChangeRef.current = false;
+
+        // Auto-resize after update
+        setTimeout(autoResize, 0);
+      });
+    }
+  }, [initialValue, doc, docReady]);
 
   // Send cursor position update
   const sendCursorUpdate = () => {
@@ -134,9 +163,9 @@ function CollaborativeEditor({ filename, initialValue, onChange, placeholder, cl
         console.error('Error subscribing to document:', err);
         return;
       }
-      
+
       console.log('📄 Subscribed to document:', filename);
-      
+
       // Initialize document if it doesn't exist
       if (shareDoc.type === null) {
         shareDoc.create({ content: initialValue || '' }, (err) => {
@@ -145,6 +174,7 @@ function CollaborativeEditor({ filename, initialValue, onChange, placeholder, cl
             return;
           }
           console.log('📝 Created new document');
+          setDocReady(true);
         });
       } else {
         // Update textarea with document content
@@ -158,6 +188,7 @@ function CollaborativeEditor({ filename, initialValue, onChange, placeholder, cl
           // Auto-resize after loading content
           setTimeout(autoResize, 0);
         }
+        setDocReady(true);
       }
     });
     
@@ -189,9 +220,10 @@ function CollaborativeEditor({ filename, initialValue, onChange, placeholder, cl
     });
     
     setDoc(shareDoc);
-    
+
     // Cleanup
     return () => {
+      setDocReady(false);
       shareDoc.destroy();
       shareConnection.close();
       shareSocket.close();
