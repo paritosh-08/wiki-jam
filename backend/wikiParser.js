@@ -8,7 +8,8 @@ const __dirname = path.dirname(__filename);
 
 // Get session directory path
 export function getSessionDirectory(sessionId) {
-  return path.join(path.dirname(__dirname), 'sessions', sessionId);
+  // __dirname is /app, so we want /app/sessions/{sessionId}
+  return path.join(__dirname, 'sessions', sessionId);
 }
 
 // Get the wiki path for a specific session
@@ -86,7 +87,17 @@ export async function getWikiPage(filename, sessionId) {
 
 export async function saveWikiPage(filename, pageData, sessionId) {
   try {
-    const wikiPath = await getSessionWikiPath(sessionId);
+    // Get the session directory path
+    const wikiPath = getSessionDirectory(sessionId);
+
+    // Create directory if it doesn't exist
+    try {
+      await fs.access(wikiPath);
+    } catch (err) {
+      console.log(`📁 Creating session directory: ${sessionId}`);
+      await fs.mkdir(wikiPath, { recursive: true });
+    }
+
     const yamlContent = {
       kind: 'WikiPage',
       version: 'v1',
@@ -101,6 +112,7 @@ export async function saveWikiPage(filename, pageData, sessionId) {
 
     const content = yaml.dump(yamlContent, { lineWidth: -1 });
     await fs.writeFile(path.join(wikiPath, filename), content, 'utf-8');
+    console.log(`💾 Saved ${filename} to disk for session ${sessionId}`);
     return true;
   } catch (err) {
     console.error(`Error saving ${filename}:`, err);

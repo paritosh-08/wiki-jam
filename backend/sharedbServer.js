@@ -1,11 +1,34 @@
 import ShareDB from 'sharedb';
+import { createRequire } from 'module';
 import WebSocket from 'ws';
 import WebSocketJSONStream from '@teamwork/websocket-json-stream';
 import { getWikiPage, saveWikiPage } from './wikiParser.js';
 
-// Create ShareDB backend with in-memory database
-// For production, you'd use sharedb-mongo or another persistent backend
-const backend = new ShareDB();
+// Use require for CommonJS module
+const require = createRequire(import.meta.url);
+const ShareDBPostgres = require('sharedb-postgres');
+
+// Create ShareDB backend with PostgreSQL database for persistence
+const dbConfig = {
+  host: process.env.DB_HOST || 'localhost',
+  port: process.env.DB_PORT || 5432,
+  database: process.env.DB_NAME || 'wiki_jam',
+  user: process.env.DB_USER || 'postgres',
+  password: process.env.DB_PASSWORD || 'postgres',
+};
+
+console.log('🔧 Initializing ShareDB with PostgreSQL:', {
+  host: dbConfig.host,
+  port: dbConfig.port,
+  database: dbConfig.database,
+  user: dbConfig.user
+});
+
+const db = new ShareDBPostgres(dbConfig);
+
+const backend = new ShareDB({ db });
+
+console.log('✅ ShareDB backend created with PostgreSQL database');
 
 // Map to track active connections and their user info
 const connections = new Map();
@@ -77,11 +100,69 @@ export function setupShareDBWebSocket(wss) {
       console.error('WebSocket error:', error);
     });
   });
-  
+
+  // Setup middleware to load documents from file system if they don't exist in ShareDB yet
+  backend.use('readSnapshots', async (context, next) => {
+    const { collection, snapshots } = context;
+
+    if (collection === 'wiki-pages') {
+      // Process each snapshot request
+      for (const snapshot of snapshots) {
+        // If document doesn't exist in ShareDB (type is null), try loading from disk
+        if (snapshot.type === null && snapshot.id) {
+          try {
+            const parts = snapshot.id.split('/');
+            if (parts.length === 2) {
+              const [sessionId, filenameWithSuffix] = parts;
+
+              // Check if this is a field-specific document (e.g., "page.hml-definition")
+              let actualFilename = filenameWithSuffix;
+              let fieldName = null;
+
+              if (filenameWithSuffix.endsWith('-definition')) {
+                actualFilename = filenameWithSuffix.replace('-definition', '');
+                fieldName = 'definition';
+              } else if (filenameWithSuffix.endsWith('-details')) {
+                actualFilename = filenameWithSuffix.replace('-details', '');
+                fieldName = 'details';
+              }
+
+              const pageData = await getWikiPage(actualFilename, sessionId);
+
+              if (pageData) {
+                let content = '';
+                if (fieldName) {
+                  // Load specific field
+                  content = pageData[fieldName] || '';
+                  console.log(`📂 Loading ${actualFilename} field "${fieldName}" from disk into ShareDB`);
+                } else {
+                  // Load raw content for full page
+                  content = pageData.rawContent || '';
+                  console.log(`📂 Loading ${actualFilename} from disk into ShareDB`);
+                }
+
+                // Set the snapshot data to load from file
+                snapshot.type = 'json0';
+                snapshot.v = 1;
+                snapshot.data = { content };
+              }
+            }
+          } catch (err) {
+            console.error(`Error loading ${snapshot.id} from disk:`, err);
+          }
+        }
+      }
+    }
+
+    next();
+  });
+
   // Setup middleware to sync ShareDB documents with file system
   backend.use('apply', async (context, next) => {
     // After an operation is applied, save to file system
-    const { collection, id, op } = context;
+    const { collection, id } = context;
+
+    console.log(`📝 ShareDB apply middleware called: collection=${collection}, id=${id}`);
 
     if (collection === 'wiki-pages') {
       try {
@@ -92,22 +173,54 @@ export function setupShareDBWebSocket(wss) {
           return next();
         }
 
-        const [sessionId, filename] = parts;
+        const [sessionId, filenameWithSuffix] = parts;
+
+        // Check if this is a field-specific document (e.g., "page.hml-definition")
+        let actualFilename = filenameWithSuffix;
+        let fieldName = null;
+
+        if (filenameWithSuffix.endsWith('-definition')) {
+          actualFilename = filenameWithSuffix.replace('-definition', '');
+          fieldName = 'definition';
+        } else if (filenameWithSuffix.endsWith('-details')) {
+          actualFilename = filenameWithSuffix.replace('-details', '');
+          fieldName = 'details';
+        }
+
+        console.log(`💾 Attempting to save ${actualFilename}${fieldName ? ` field "${fieldName}"` : ''} for session ${sessionId}`);
 
         // Get the document
         const doc = backend.connect().get(collection, id);
         await new Promise((resolve) => {
-          doc.fetch((err) => {
+          doc.fetch(async (err) => {
             if (err) {
               console.error('Error fetching document:', err);
               return resolve();
             }
 
             // Save to file system with sessionId
-            if (doc.data) {
-              saveWikiPage(filename, doc.data, sessionId).catch(err => {
-                console.error(`Error saving ${filename}:`, err.message);
-              });
+            if (doc.data && doc.data.content !== undefined) {
+              try {
+                if (fieldName) {
+                  // For field-specific documents, we need to read the existing page,
+                  // update the specific field, and save it back
+                  const existingPage = await getWikiPage(actualFilename, sessionId);
+                  const pageData = existingPage || {};
+
+                  // Update the specific field
+                  pageData[fieldName] = doc.data.content;
+
+                  // Save the updated page
+                  await saveWikiPage(actualFilename, pageData, sessionId);
+                  console.log(`💾 Saved ${actualFilename} field "${fieldName}" to disk`);
+                } else {
+                  // For full page documents, save the content directly
+                  await saveWikiPage(actualFilename, doc.data, sessionId);
+                  console.log(`💾 Saved ${actualFilename} to disk`);
+                }
+              } catch (saveErr) {
+                console.error(`Error saving ${actualFilename}:`, saveErr.message);
+              }
             }
             resolve();
           });
